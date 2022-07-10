@@ -1,0 +1,133 @@
+---
+title: "Evaluation of model fit to Otsuka NPC assembly kinetics 20190225"
+output: html_notebook
+---
+Model is a linear combination of hill functions. 
+  There are 2 regions: noncore and core,  and 
+  2 paths: postmitotic and interphase. 
+The parameters of the 2 paths is identical between the 2 regions. There can be a slight delay in the core region for initiating the assembly. 
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '/Users/apoliti/ownCloud/Shotaro_Otsuka_collaboration/NPCmaturation/')
+```
+
+```{r experimental data}
+library('ggplot2')
+indata_bgsub <- read.csv('expdata/livecellCalibrated/HeLa4D-core-noncore-normalized-summary-190225_norm_bgsub.txt', sep = '\t')
+model_parameters <- read.csv('results/singlepore/20210417_bgsub_nuclei_dynamic_usestd1/20210417_single_npc_logn_hill_CI__par_complete.txt', sep = '\t')
+model_data <- read.csv('results/singlepore/20210417_bgsub_nuclei_dynamic_usestd1/20210417_single_npc_logn_hill_2min__singlepath.txt', sep = '\t')
+color_regions <- c('noncore' = '#0099FF', 
+                 'core' = '#92D050')
+order_regions <- c('noncore', 'core')
+# named vector for colors
+
+color_pois <- c('Nup358' = '#C00000', 
+        'Nup214' = '#FF00FF', 
+        'Nup107' = '#00B050', 
+        'Seh1'   = '#92D050', 
+        'Nup62'  = '#7030A0', 
+        'Nup205' = '#4CAEEA', 
+        'Nup93'  = '#2C6FBA',
+        'TPR'    = '#EB3223', 
+        'Nup153' = '#F7CE68', 
+        'Pom121' = '#F7CDCD')
+order_pois <- c( "Nup153", "Pom121",  "Nup107", "Seh1",  "Nup205", "Nup93", "Nup62","Nup214", "Nup358", "TPR")
+
+indata_bgsub$POI <- factor (indata_bgsub$POI, levels = order_pois)
+indata_bgsub$regio <- factor(indata_bgsub$region, levels = order_regions)
+model_parameters$POI <- factor(model_parameters$POI, levels = order_pois)
+img.width  = 7
+img.height = 5
+```
+
+
+
+```{r create plot of time interval versus length of signal}
+
+for (ipath in range(1,2)) {
+      model_parameters$xval <- model_parameters[ , paste0('kin2_p', ipath, '_r12')]
+      model_parameters$xval_low<- model_parameters[ , paste0('kin2_p', ipath, '_r12_lowCI')]
+      model_parameters$xval_high <- model_parameters[ , paste0('kin2_p', ipath, '_r12_highCI')]
+      if (ipath == 1) {
+        model_parameters$yval <- model_parameters$dTp
+        model_parameters$yval_low <- model_parameters$dTp_lowCI
+        model_parameters$yval_high <- model_parameters$dTp_highCI
+        outfilename <- "./results/singlepore/20210417_bgsub_nuclei_dynamic_usestd1/20210417_DT_vs_K_postmitotic.pdf"
+      } else {
+        model_parameters$yval <- model_parameters$dTi
+        model_parameters$yval_low <- model_parameters$dTi_lowCI
+        model_parameters$yval_high <- model_parameters$dTi_highCI
+        outfilename <- "./results/singlepore/20210417_bgsub_nuclei_dynamic_usestd1/20210417_DT_vs_K_interphase.pdf"
+      }
+
+    
+      p <- ggplot(data = model_parameters, aes(x = xval, y = yval))
+      p <- p + geom_smooth(method = "lm")
+      p <- p + geom_point( aes(color = POI), size = 1.5)
+      p <- p + geom_linerange( aes(xmin = xval_low, xmax = xval_high, color = POI))
+     
+      p <- p + geom_linerange( aes( ymin = yval_low, ymax = yval_high, color = POI))
+     
+      p <- p + scale_color_manual(values = color_pois )
+      p <- p + theme_classic()
+      p <- p + xlab('K, average time-point of recruitement (min)')
+      p <- p +  coord_cartesian(x = c(round(min(model_parameters$xval)) - 5, round(max(model_parameters$xval))  + 5))
+      p <- p + ylab('DT, duration of recruitment  (min)')
+      p <- p + annotate("text", x = model_parameters$xval-2, y = model_parameters$yval + 5, label = model_parameters$POI, 
+                        colour  = color_pois[as.vector(model_parameters$POI)],  size = 3)
+      p <- p + theme(text = element_text(size = 8), 
+                    axis.text = element_text(size = 8), 
+                    legend.position = "none", 
+                    plot.margin = margin(0.1, 0.2, 0.1, 0.1, "in"))
+     ggsave(outfilename, p, width = img.width*1.5, height = img.height*1.5, units = "cm", useDingbats = FALSE)
+     print(p)
+}
+```
+
+```{r example showing assembly time and duration}
+compute_duration_assembly <- function(alpha, simul, ipath){
+  if (paste0('ini1_p', ipath, '_r12') %in% colnames(simul)){
+    timeval <- simul[ , paste0('kin2_p', ipath, '_r12')] 
+  }
+  else{
+    timeval <- simul[ , paste0('kin2_p', ipath, '_r12')]
+  }
+  nH <- simul[ , paste0('kin1_p', ipath, '_r12')] 
+  dT <- c(timeval*(alpha[2]/(1-alpha[2]))^(1/nH) , timeval*(alpha[1]/(1-alpha[1]))^(1/nH))
+  return(dT)
+}
+outfilename <- "./results/singlepore/20210417_bgsub_nuclei_dynamic_usestd1/20210417_NUP358_interphase.pdf"
+poi_to_plot <- subset(model_data, POI == "Nup358" & path_id == 2 & region == 'noncore')
+par_poi <- subset(model_parameters,POI == "Nup358")
+dT <- compute_duration_assembly(c(0.1,0.9), par_poi, 2)
+p <- ggplot(data = poi_to_plot, aes(x = time_min, y = path_int, color = POI))
+p <- p + geom_line()
+p <- p + theme_classic()
+p <- p + scale_color_manual(values = color_pois )
+p <- p + xlab('Time after AO (min)')
+p <- p + ylab('Fraction recruited')
+p <- p + geom_hline(aes(yintercept = 0.1))
+p <- p + geom_hline(aes(yintercept = 0.5))
+p <- p + geom_hline(aes(yintercept = 0.9))
+p <- p + geom_vline(aes(xintercept = dT[1]))
+p <- p + geom_vline(aes(xintercept = par_poi$kin2_p2_r12))
+p <- p + geom_vline(aes(xintercept = dT[2]))
+
+p <- p + theme(text = element_text(size = 8), 
+                    axis.text = element_text(size = 8), 
+                    legend.position = "none", 
+                    plot.margin = margin(0.1, 0.2, 0.1, 0.1, "in"))
+
+p
+ggsave(outfilename, p, width = img.width*1.5, height = img.height*1.5, units = "cm", useDingbats = FALSE)
+
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+

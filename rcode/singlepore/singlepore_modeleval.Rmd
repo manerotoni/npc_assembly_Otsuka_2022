@@ -1,0 +1,409 @@
+---
+title: "Evaluation of model fit to Otsuka NPC assembly kinetics 20190225"
+output: html_notebook
+---
+Model is a linear combination of hill functions. 
+  There are 2 regions: noncore and core,  and 
+  2 paths: postmitotic and interphase. 
+The parameters of the 2 paths is identical between the 2 regions. There can be a slight delay in the core region for initiating the assembly. 
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '/Users/apoliti/ownCloud/Shotaro_Otsuka_collaboration/NPCmaturation/')
+```
+
+```{r experimental data}
+library('ggplot2')
+indata <- read.csv('expdata/livecellCalibrated/HeLa4D-core-noncore-normalized-summary-190225_norm.txt', sep = '\t')
+indata_bgsub <- read.csv('expdata/livecellCalibrated/HeLa4D-core-noncore-normalized-summary-190225_norm_bgsub.txt', sep = '\t')
+color_regions <- c('noncore' = '#0099FF', 
+                 'core' = '#92D050')
+order_regions <- c('noncore', 'core')
+# named vector for colors
+
+color_pois <- c('Nup358' = '#C00000', 
+        'Nup214' = '#FF00FF', 
+        'Nup107' = '#00B050', 
+        'Seh1'   = '#92D050', 
+        'Nup62'  = '#7030A0', 
+        'Nup205' = '#4CAEEA', 
+        'Nup93'  = '#2C6FBA',
+        'TPR'    = '#EB3223', 
+        'Nup153' = '#F7CE68', 
+        'Pom121' = '#F7CDCD')
+order_pois <- c( "Nup153", "Pom121",  "Nup107", "Seh1",  "Nup205", "Nup93", "Nup62","Nup214", "Nup358", "TPR")
+
+indata$POI <- factor (indata$POI, levels = order_pois)
+indata_bgsub$POI <- factor (indata_bgsub$POI, levels = order_pois)
+indata$region <- factor(indata$region, levels = order_regions)
+indata_bgsub$regio <- factor(indata_bgsub$region, levels = order_regions)
+
+img.width  = 7
+img.height = 5
+```
+
+```{r}
+format_plot <- function(p) {
+
+  p <- p + scale_color_manual(values = color_pois )
+  p <- p + theme_classic()
+  p <- p + theme(text = element_text(size = 8), 
+                 axis.text = element_text(size = 8), 
+                 legend.position = "none", 
+                 plot.margin = margin(0.1, 0.2, 0.1, 0.1, "in"))
+  p <- p + xlab('Time after AO (min)')
+  p <- p + ylab('Normalized intensity')
+  p <- p + scale_x_continuous(breaks = c(0, 30, 60, 90, 120))
+  p <- p + scale_y_continuous(breaks = c(0, 0.5, 1))
+  p <- p + coord_cartesian(xlim = c(0, 120), ylim = c(0, 1.3), expand = FALSE)
+  return(p)
+}
+```
+
+
+```{r plot data for core and non-core region}
+# figure size in inches
+region_id = 'core'
+bgsub = FALSE
+if (bgsub) {
+  datatouse = indata_bgsub
+  prefix = 'bgsub_'} else {
+  datatouse = indata
+  prefix = ''
+  }
+outfilename <- paste0('expdata/livecellCalibrated/figures_210417/', region_id, '_', prefix, 'norm', '.png')
+
+p <- ggplot(data = subset(datatouse, region == region_id))
+p <- p + geom_point(aes(x = time_min, y = tot_int_mean, color = POI), size = 0.1)
+p <- format_plot(p)
+p
+ggsave(outfilename, p, width = img.width, height = img.height, units = "cm")
+```
+
+```{r plot data for core and non-core region for one POI only using a color scheme for core and noncore}
+# figure size in inches
+poi_name = 'Nup358'
+bgsub = TRUE
+if (bgsub) {
+  datatouse = indata_bgsub
+  prefix = 'bgsub_'} else {
+  datatouse = indata
+  prefix = ''
+  }
+outfilename <- paste0('expdata/livecellCalibrated/figures_210417/', prefix, 'norm_',  poi_name, '.png')
+
+p <- ggplot(data = subset(datatouse, POI == poi_name))
+
+p <- p + geom_ribbon(aes( x = time_min, ymin = tot_int_mean-tot_int_sd, 
+                         ymax = tot_int_mean+tot_int_sd,  fill = region, alpha = 0.5))
+p <- p + geom_line(aes(x = time_min, y = tot_int_mean, color = region))
+p <- p + scale_color_manual(values = color_regions )
+p <- p + scale_fill_manual(values = color_regions )
+p <- p + theme_classic()
+p <- p + theme(text = element_text(size = 8), 
+               axis.text = element_text(size = 8), 
+               legend.position = "none", 
+               plot.margin = margin(0.1, 0.2, 0.1, 0.1, "in"))
+p <- p + xlab('Time after AO (min)')
+p <- p + ylab('Normalized intensity')
+p <- p + scale_x_continuous(breaks = c(0, 30, 60, 90, 120))
+p <- p + scale_y_continuous(breaks = c(0, 0.5, 1))
+p <- p + coord_cartesian(xlim = c(0, 120), ylim = c(0, 1.3), expand = FALSE)
+p
+ggsave(outfilename, p, width = img.width, height = img.height, units = "cm")
+```
+```{r identify delay time core non-core}
+resultpath <- 'results/singlepore/'
+#date <- '20190317'
+date <- '20210417'
+dt <- c('0','1','2','3','4','5','6')
+model_filename_par <- paste0(date, '_single_npc_logn_hill_', dt, 'min__par.txt')
+model_filename_frac_par <- paste0(date, '_single_npc_logn_hill_', dt, 'min__frac_par.txt')
+path <- file.path(resultpath, paste0(date, '_bgsub_nuclei_dynamic_usestd0'))
+norm_all_usestd0 <- data.frame()
+for (i in c(1:length(dt)))  {
+  infilename <- file.path(path, model_filename_par[i])
+  simul <- read.csv(infilename, sep = '\t')
+  simul$delay <- dt[i]
+  norm_all_usestd0 <- rbind(norm_all_usestd0, simul)
+  
+}
+aggregate(norm_all_usestd0$norm, by = list(norm_all$delay), sum)
+
+path <- file.path(resultpath, paste0(date, '_bgsub_nuclei_dynamic_usestd1'))
+norm_all_usestd1 <- data.frame()
+for (i in c(1:length(dt)))  {
+  infilename <- file.path(path, model_filename_par[i])
+  simul <- read.csv(infilename, sep = '\t')
+  simul$delay <- dt[i]
+ norm_all_usestd1 <- rbind(norm_all_usestd1, simul)
+  
+}
+aggregate(norm_all_usestd1 $norm, by = list(norm_all$delay), sum)
+
+# in both cases a delay of 2 min is optimal
+```
+```{r get parameters}
+dt <- c('2')
+model_filename_par <- paste0(date, '_single_npc_logn_hill_', dt, 'min__par.txt')
+model_filename_frac_par <- paste0(date, '_single_npc_logn_hill_', dt, 'min__frac_par.txt')
+path <- file.path(resultpath, paste0(date, '_bgsub_nuclei_dynamic_usestd0'))
+for (i in c(1:length(dt)))  {
+  infilename <- file.path(path, model_filename_par[i])
+  
+  infilename_frac <- file.path(path, model_filename_frac_par[i])
+
+  simul <- read.csv(infilename, sep = '\t')
+  simul$delay <- dt[i]
+  simul_frac <- read.csv(infilename_frac, sep = '\t')
+  simul_frac$delay <- dt[i]
+}
+```
+
+```{r plot tot_kinetics usestd0}
+resultpath <- 'results/singlepore/'
+#date <- '20190317'
+date <- '20200417'
+model_filename_totkin <- paste0(date, '_single_npc_logn_hill_totkin.txt')
+model_filename_singlepath <- paste0(date, '_single_npc_logn_hill_singlepath.txt')
+model_filename_par <- paste0(date, '_single_npc_logn_hill_par.txt')
+
+models_usestd0<-data.frame(pathname = file.path(resultpath, paste0(date, '_bgsub_nuclei_dynamic_usestd0')), 
+                    type = c('bgsub_reg2_2mindelay_reg1'))
+models_usestd1<-data.frame(pathname = file.path(resultpath, paste0(date, '_bgsub_nuclei_dynamic_usestd1')), 
+                    type = c('bgsub_reg2_2mindelay_reg1'))
+models_usestd1<-data.frame(pathname = c(file.path(resultpath, '20190317_nuclei_dynamic_limitinit_usestd1'), 
+                                file.path(resultpath, '20190317_nuclei_dynamic_usestd1'),
+                                file.path(resultpath, '20190317_bgsub_nuclei_dynamic_limitinit_usestd1'),
+                                file.path(resultpath, '20190317_bgsub_nuclei_dynamic_usestd1')), 
+                    type = c('reg2_eq_reg1',
+                             'reg2_2mindelay_reg1', 
+                             'bgsub_reg2_eq_reg1', 
+                             'bgsub_reg2_2mindelay_reg1'))
+```
+
+
+```{r compare models when std was also used in the fit}
+
+models_id <- models_usestd1
+norm_all <- data.frame()
+for (i in c(1:dim(models_id)[1]))  {
+  model <- models_id[i,]
+  infilename <- file.path(model$pathname, model_filename_par)
+  simul <- read.csv(infilename, sep = '\t')
+  simul$type <- model$type
+  norm_all <- rbind(norm_all, simul[, c('POI', 'norm', 'type')])
+  
+}
+aggregate(norm_all$norm, by = list(norm_all$type), mean)
+
+
+models_id <- models_usestd0
+norm_all <- data.frame()
+for (i in c(1:dim(models_id)[1]))  {
+  model <- models_id[i,]
+  infilename <- file.path(model$pathname, model_filename_par)
+  simul <- read.csv(infilename, sep = '\t')
+  simul$type <- model$type
+  norm_all <- rbind(norm_all, simul[, c('POI', 'norm', 'type')])
+  
+}
+aggregate(norm_all$norm, by = list(norm_all$type), mean)
+```
+
+
+```{r compare models when std is not used in the fits}
+library('ggplot2')
+resultpath <- '../../results/singlepore/'
+model_filename <- '20190317_single_npc_logn_hill_par.txt'
+model.1 <- read.csv(file.path(resultpath, '20190317_nuclei_dynamic_limitinit_usestd0', model_filename), sep = '\t')
+model.1$type <- 'reg2_eq_reg1'
+model.2 <- read.csv(file.path(resultpath, '20190317_nuclei_dynamic_usestd0', model_filename), sep = '\t')
+model.2$type <- 'reg2_2mindelay_reg1'
+model.3 <- read.csv(file.path(resultpath, '20190317_bgsub_nuclei_dynamic_limitinit_usestd0', model_filename), sep = '\t')
+model.3$type <- 'bgsub_reg2_eq_reg1'
+model.4 <- read.csv(file.path(resultpath, '20190317_bgsub_nuclei_dynamic_usestd0', model_filename), sep = '\t')
+model.4$type <- 'bgsub_reg2_2mindelay_reg1'
+
+models <- rbind(model.1[, c('POI', 'norm', 'type')], model.2[, c('POI', 'norm', 'type')], model.3[, c('POI', 'norm', 'type')], model.4[, c('POI', 'norm', 'type')])
+
+p <- ggplot(data = models)
+p <- p + geom_point(aes(x = type, y= norm, color = POI))
+p
+aggregate(models$norm, by = list(models$type), mean)
+```
+load Modal data
+
+
+
+Plot model results with data
+```{r cycle through all models}
+models_id <- models_usestd1
+for (i in c(1:dim(models_id)[1])) {
+  if (i > 2)
+    datatouse <- indata_bgsub
+  else
+    datatouse <- indata
+  
+  model <- models_id[i,]
+  infilename <- file.path(model$pathname, model_filename_totkin)
+  simul <- read.csv(infilename, sep = '\t')
+  for (region_id in order_regions) {
+    outfilename <- file.path(model$pathname, 'figures', paste0(region_id[1], '.png'))
+    p <- ggplot(data = subset(datatouse, region == region_id))
+    p <- p + geom_point(aes(x = time_min, y = tot_int_mean, color = POI), size = 0.1)
+    p <- format_plot(p)
+    p <- p + geom_line(data = subset(simul, region == region_id), aes(x = time_min, y = tot_int, color = POI))
+    ggsave(outfilename, p, width = img.width, height = img.height, units = "cm")
+    print(p)
+  }
+  
+}
+
+```
+```{r plot just postmitotic and interphase}
+models_id <- models_usestd0
+for (i in  c(1:dim(models_id)[1])) {
+  print(i)
+  if (i > 2)
+    datatouse <- indata_bgsub
+  else
+    datatouse <- indata
+  model <- models_id[i,]
+  infilename <- file.path(model$pathname, model_filename_singlepath)
+  simul <- read.csv(infilename, sep = '\t')
+  simul$POI <- factor (simul$POI, levels = order_pois)
+  for (ipath in range(1,2)) {
+      outfilename <- file.path(model$pathname, 'figures', paste0('path', ipath,  '.pdf'))
+      p <- ggplot(data = subset(simul, region == 'core' & path_id == ipath))
+      p <- p + geom_line(aes(x = time_min, y = path_int, color = POI))
+      p <- format_plot(p)
+      ggsave(outfilename, p, width = img.width, height = img.height, units = "cm")
+  }
+  
+}
+p
+
+
+
+```
+```{r create a plot of the half times}
+models_id <- models_usestd1
+alpha = c(0.1, 0.9) # values from which to calculate the width of the signal
+for (i in  c(1:dim(models_id)[1])) {
+  if (i > 2)
+    datatouse <- indata_bgsub
+  else
+    datatouse <- indata
+  model <- models_id[i,]
+  infilename <- file.path(model$pathname, model_filename_par)
+  simul <- read.csv(infilename, sep = '\t')
+  simul$POI <- factor(simul$POI, levels = order_pois)
+  for (ipath in range(1,1)) {
+    
+      outfilename <- file.path(model$pathname, 'figures', paste0('path', ipath,  '_inflectionpoint.pdf'))
+      if (paste0('ini1_p', ipath, '_r12') %in% colnames(simul)){
+        timeval <- simul[ , paste0('kin2_p', ipath, '_r12')] + simul[ , paste0('ini1_p', ipath, '_r12')]
+      }
+      else{
+        timeval <- simul[ , paste0('kin2_p', ipath, '_r12')] + simul[ , paste0('ini1_p', ipath, '_r1')]
+      }
+      nH <- simul[ , paste0('kin1_p', ipath, '_r12')] 
+      dT <- timeval*(alpha[2]/(1-alpha[2]))^(1/nH) - timeval*(alpha[1]/(1-alpha[1]))^(1/nH)
+      p <- ggplot(data = simul)
+
+      p <- p + geom_bar(aes_string(x = timeval, y = 1, color = 'POI'),stat="identity",width=.1)
+      p <- p + geom_point(aes_string(x = timeval, y = 1, color = 'POI'), size = 2)
+      p <- p + scale_color_manual(values = color_pois )
+      p <- p + theme_classic()
+      p <- p + xlab('Time after AO (min)')
+      if (ipath == 2) {
+        p <- p + coord_cartesian(x = c(min(timeval) - 8, max(timeval)  + 8), y = c(0.95, 1.1), expand = FALSE)
+        p <- p + scale_x_continuous(breaks = seq(30, 70, 5))
+      } else {
+        p <- p + coord_cartesian(x = c(min(timeval) - 2, max(timeval)  + 2), y = c(0.95, 1.1), expand = FALSE)
+        p <- p + scale_x_continuous(breaks = seq(10, 30, 5))
+      }
+      p <- p + annotate("text", x = timeval, y = 1.03, label = simul$POI, 
+                        colour  = color_pois[as.vector(simul$POI)], angle = 45, size = 3)
+      p <- p + theme(text = element_text(size = 8), 
+                    axis.text.x = element_text(size = 8), 
+                    legend.position = "none", 
+                    plot.margin = margin(0.1, 0.2, 0.1, 0.1, "in"), 
+                    axis.line.y =element_blank(), 
+                    axis.text.y = element_blank(),
+                    axis.ticks.y = element_blank(), 
+                    axis.title.y = element_blank())
+      ggsave(outfilename, p, width = img.width, height = img.height, units = "cm")
+  }
+  
+}
+p
+
+
+```
+
+```{r create plot of time interval versus length of signal}
+models_id <- models_usestd0
+alpha = c(0.1, 0.9) # values from which to calculate the width of the signal
+for (i in  c(1:dim(models_id)[1])) {
+  if (i > 2)
+    datatouse <- indata_bgsub
+  else
+    datatouse <- indata
+  model <- models_id[i,]
+  infilename <- file.path(model$pathname, model_filename_par)
+  simul <- read.csv(infilename, sep = '\t')
+  simul$POI <- factor(simul$POI, levels = order_pois)
+  for (ipath in range(1,2)) {
+    
+      outfilename <- file.path(model$pathname, 'figures', paste0('path', ipath,  '_width_vs_inflectionpoint.pdf'))
+      if (paste0('ini1_p', ipath, '_r12') %in% colnames(simul)){
+        timeval <- simul[ , paste0('kin2_p', ipath, '_r12')] + simul[ , paste0('ini1_p', ipath, '_r12')]
+      }
+      else{
+        timeval <- simul[ , paste0('kin2_p', ipath, '_r12')] + simul[ , paste0('ini1_p', ipath, '_r1')]
+      }
+      nH <- simul[ , paste0('kin1_p', ipath, '_r12')] 
+      dT <- timeval*(alpha[2]/(1-alpha[2]))^(1/nH) - (alpha[1]/(1-alpha[1]))^(1/nH))
+      simul$xval <- timeval
+      simul$yval <- dT
+     
+      
+      p <- ggplot(data = simul)
+      #p <- p + geom_smooth(method = "lm")
+      p <- p + geom_point( aes(x = xval, y = yval, color = POI), size = 2)
+      p <- p + geom_smooth( aes(x = xval, y = yval), method = "lm")
+      p <- p + scale_color_manual(values = color_pois )
+      p <- p + theme_classic()
+      p <- p + xlab('tau, assembly time (min)')
+      p <- p +  coord_cartesian(x = c(round(min(timeval)) - 5, round(max(timeval))  + 5))
+      p <- p + ylab('DT, duration of accumulation  (min)')
+      p <- p + annotate("text", x = timeval, y = dT + 5, label = simul$POI, 
+                        colour  = color_pois[as.vector(simul$POI)],  size = 3)
+      p <- p + theme(text = element_text(size = 8), 
+                    axis.text = element_text(size = 8), 
+                    legend.position = "none", 
+                    plot.margin = margin(0.1, 0.2, 0.1, 0.1, "in"))
+     ggsave(outfilename, p, width = img.width*1.5, height = img.height*1.5, units = "cm", useDingbats = FALSE)
+     print(p)
+  }
+  
+}
+
+
+```
+```{r rename file}
+fnames <-  dir(path = './results/singlepore/20210417_bgsub_nuclei_dynamic_usestd1/', pattern = '^\\d+', full.names = TRUE)
+for (fname in fnames){
+  fname_new <- gsub(x = fname, pattern = '20200417', replacement = '20210417')
+ file.rename(fname, fname_new)
+}
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
