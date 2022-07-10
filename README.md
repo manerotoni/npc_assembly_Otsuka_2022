@@ -4,4 +4,4 @@ Code associated to the publication
 
 This repository contains code and data for the analysis of live-cell fluoresence data of Nuclear porin localization on the Nuclear envelope after anaphase. 
 
-Author: Antonio Politi, EMBL Heidelberg, Max Planck Institute for multidisciplinary science, Goettingen.
+Author: Antonio Politi, EMBL Heidelberg, Max Planck Institute for Multidisciplinary Sciences, Göttingen.
